@@ -34,7 +34,9 @@
         const [wasmReady, setWasmReady] = useState(false);
         const [publicKey, setPublicKey] = useState("");
         const [privateKey, setPrivateKey] = useState("");
-        const [plaintext, setPlaintext] = useState("This is a secret message!");
+        const [plaintext, setPlaintext] = useState(
+          "Hi Uath golang meetup! This is our secret message :)",
+        );
         const [ciphertext, setCiphertext] = useState("");
         const [decryptedText, setDecryptedText] = useState("");
         const [error, setError] = useState("");
@@ -117,13 +119,7 @@
         }, [wasmReady, privateKey, ciphertext]);
 
         // Helper component for text areas
-        const TextArea = ({
-          title,
-          value,
-          onInput,
-          placeholder,
-          readOnly = false,
-        }) => html`
+        const TextArea = ({ title, value, onInput, placeholder }) => html`
           <div class="w-full">
             <label class="block text-sm font-medium text-gray-300 mb-1"
               >${title}</label
@@ -133,7 +129,6 @@
               value=${value}
               onInput=${onInput}
               placeholder=${placeholder}
-              readonly=${readOnly}
             ></textarea>
           </div>
         `;
