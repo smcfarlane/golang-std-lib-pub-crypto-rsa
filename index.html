@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go WASM RSA Crypto Demo</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Import Map to resolve bare module specifiers -->
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "https://unpkg.com/preact/dist/preact.module.js",
+          "preact/hooks": "https://unpkg.com/preact/hooks/dist/hooks.module.js",
+          "htm": "https://unpkg.com/htm/dist/htm.module.js"
+        }
+      }
+    </script>
+
+    <!-- Preact and htm for building the UI -->
+    <script type="module">
+      import { h, Component, render } from "preact";
+      import { useState, useCallback, useEffect } from "preact/hooks";
+      import htm from "htm";
+
+      // Initialize htm with Preact
+      const html = htm.bind(h);
+
+      const App = () => {
+        const [wasmReady, setWasmReady] = useState(false);
+        const [publicKey, setPublicKey] = useState("");
+        const [privateKey, setPrivateKey] = useState("");
+        const [plaintext, setPlaintext] = useState("This is a secret message!");
+        const [ciphertext, setCiphertext] = useState("");
+        const [decryptedText, setDecryptedText] = useState("");
+        const [error, setError] = useState("");
+        const [loading, setLoading] = useState({
+          keys: false,
+          encrypt: false,
+          decrypt: false,
+        });
+
+        // Load the WASM module
+        useEffect(() => {
+          if (typeof Go === "undefined") {
+            setError("The wasm_exec.js script is missing or failed to load.");
+            return;
+          }
+          const go = new Go();
+          WebAssembly.instantiateStreaming(
+            fetch("/static/main.wasm"),
+            go.importObject,
+          )
+            .then((result) => {
+              go.run(result.instance);
+              setWasmReady(true);
+            })
+            .catch((err) => {
+              console.error("WASM loading error:", err);
+              setError(
+                "Failed to load the WebAssembly module. Check the console for details.",
+              );
+            });
+        }, []);
+
+        const handleGenerateKeys = useCallback(() => {
+          if (!wasmReady) return;
+          setLoading((prev) => ({ ...prev, keys: true }));
+          setError("");
+          setTimeout(() => {
+            const result = window.generateKeys();
+            if (result.error) {
+              setError(result.error);
+            } else {
+              setPublicKey(result.publicKey);
+              setPrivateKey(result.privateKey);
+              setCiphertext("");
+              setDecryptedText("");
+            }
+            setLoading((prev) => ({ ...prev, keys: false }));
+          }, 10); // setTimeout to allow UI to update
+        }, [wasmReady]);
+
+        const handleEncrypt = useCallback(() => {
+          if (!wasmReady || !publicKey || !plaintext) return;
+          setLoading((prev) => ({ ...prev, encrypt: true }));
+          setError("");
+          setTimeout(() => {
+            const result = window.encrypt(publicKey, plaintext);
+            if (result.error) {
+              setError(result.error);
+            } else {
+              setCiphertext(result.ciphertext);
+              setDecryptedText("");
+            }
+            setLoading((prev) => ({ ...prev, encrypt: false }));
+          }, 10);
+        }, [wasmReady, publicKey, plaintext]);
+
+        const handleDecrypt = useCallback(() => {
+          if (!wasmReady || !privateKey || !ciphertext) return;
+          setLoading((prev) => ({ ...prev, decrypt: true }));
+          setError("");
+          setTimeout(() => {
+            const result = window.decrypt(privateKey, ciphertext);
+            if (result.error) {
+              setError(result.error);
+            } else {
+              setDecryptedText(result.plaintext);
+            }
+            setLoading((prev) => ({ ...prev, decrypt: false }));
+          }, 10);
+        }, [wasmReady, privateKey, ciphertext]);
+
+        // Helper component for text areas
+        const TextArea = ({
+          title,
+          value,
+          onInput,
+          placeholder,
+          readOnly = false,
+        }) => html`
+          <div class="w-full">
+            <label class="block text-sm font-medium text-gray-300 mb-1"
+              >${title}</label
+            >
+            <textarea
+              class="w-full h-32 p-2 bg-gray-700 border border-gray-600 rounded-md text-gray-200 text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+              value=${value}
+              onInput=${onInput}
+              placeholder=${placeholder}
+              readonly=${readOnly}
+            ></textarea>
+          </div>
+        `;
+
+        const ActionButton = ({ onClick, disabled, loading, children }) => html`
+          <button
+            onClick=${onClick}
+            disabled=${disabled || loading}
+            class="w-full px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 flex items-center justify-center"
+          >
+            ${loading &&
+            html`<svg
+              class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>`}
+            ${loading ? "Processing..." : children}
+          </button>
+        `;
+
+        return html`
+                <div class="bg-gray-800 text-white min-h-screen font-sans p-4 sm:p-6 lg:p-8">
+                    <div class="max-w-4xl mx-auto">
+                        <header class="text-center mb-8">
+                            <h1 class="text-3xl sm:text-4xl font-bold text-indigo-400">Go WASM RSA Crypto</h1>
+                            <p class="text-gray-400 mt-2">A demonstration of RSA public-key cryptography using Go compiled to WebAssembly.</p>
+                        </header>
+
+                        ${
+                          !wasmReady &&
+                          !error &&
+                          html`
+                            <div
+                              class="flex justify-center items-center bg-gray-700 p-4 rounded-lg"
+                            >
+                              <svg
+                                class="animate-spin mr-3 h-6 w-6 text-indigo-400"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  class="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  stroke-width="4"
+                                ></circle>
+                                <path
+                                  class="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                              <span class="text-lg"
+                                >Loading WebAssembly Module...</span
+                              >
+                            </div>
+                          `
+                        }
+
+                        ${
+                          error &&
+                          html`
+                            <div
+                              class="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg relative mb-6"
+                              role="alert"
+                            >
+                              <strong class="font-bold">Error: </strong>
+                              <span class="block sm:inline">${error}</span>
+                            </div>
+                          `
+                        }
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <!-- Step 1 -->
+                            <div class="bg-gray-900 p-4 rounded-lg shadow-lg flex flex-col items-center">
+                                <div class="text-lg font-semibold mb-3"><span class="bg-indigo-500 text-white rounded-full h-8 w-8 flex items-center justify-center mr-2">1</span> Generate Keys</div>
+                                <${ActionButton} onClick=${handleGenerateKeys} disabled=${!wasmReady} loading=${loading.keys}>Generate Key Pair</${ActionButton}>
+                            </div>
+                            <!-- Step 2 -->
+                            <div class="bg-gray-900 p-4 rounded-lg shadow-lg flex flex-col items-center">
+                                <div class="text-lg font-semibold mb-3"><span class="bg-indigo-500 text-white rounded-full h-8 w-8 flex items-center justify-center mr-2">2</span> Encrypt</div>
+                                <${ActionButton} onClick=${handleEncrypt} disabled=${!wasmReady || !publicKey} loading=${loading.encrypt}>Encrypt with Public Key</${ActionButton}>
+                            </div>
+                            <!-- Step 3 -->
+                            <div class="bg-gray-900 p-4 rounded-lg shadow-lg flex flex-col items-center">
+                                <div class="text-lg font-semibold mb-3"><span class="bg-indigo-500 text-white rounded-full h-8 w-8 flex items-center justify-center mr-2">3</span> Decrypt</div>
+                                <${ActionButton} onClick=${handleDecrypt} disabled=${!wasmReady || !privateKey || !ciphertext} loading=${loading.decrypt}>Decrypt with Private Key</${ActionButton}>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <${TextArea} title="Public Key" value=${publicKey} placeholder="Generate a key pair to see the public key." readOnly=${true} />
+                                <${TextArea} title="Private Key" value=${privateKey} placeholder="Generate a key pair to see the private key." readOnly=${true} />
+                            </div>
+                             <${TextArea}
+                                title="Plaintext to Encrypt"
+                                value=${plaintext}
+                                onInput=${(e) => setPlaintext(e.target.value)}
+                                placeholder="Enter text to encrypt here..."
+                            />
+                            <${TextArea} title="Ciphertext (Base64)" value=${ciphertext} placeholder="Encrypt some plaintext to see the result." readOnly=${true} />
+                            <${TextArea} title="Decrypted Text" value=${decryptedText} placeholder="Decrypt some ciphertext to see the result." readOnly=${true} />
+                        </div>
+                    </div>
+                </div>
+            `;
+      };
+
+      render(html`<${App} />`, document.getElementById("app"));
+    </script>
+  </head>
+  <body class="bg-gray-800">
+    <!-- Required for Go WASM -->
+    <script src="/static/wasm_exec.js"></script>
+    <!-- Preact app root -->
+    <div id="app"></div>
+  </body>
+</html>
